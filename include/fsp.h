@@ -334,6 +334,7 @@
 #define FSP_RSP_SP_QUERY_CAPS	0x0ce8500
 #define FSP_CMD_GET_IPL_SIDE	0x1ce0600 /* HV->FSP: Get IPL side and speed */
 #define FSP_CMD_SET_IPL_SIDE	0x1ce0780 /* HV->FSP: Set next IPL side */
+#define FSP_CMD_SET_IPL_SPEED	0x1ce0740 /* HV->FSP: Set IPL speed */
 #define FSP_CMD_ERRLOG_PHYP_ACK	0x1ce0800 /* HV->FSP */
 #define FSP_RSP_ERRLOG_PHYP_ACK	0x0ce8800 /* FSP->HV */
 #define FSP_CMD_ERRLOG_GET_PLID	0x0ce0900 /* FSP->HV: Get PLID */

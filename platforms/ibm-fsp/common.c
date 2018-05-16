@@ -182,12 +182,37 @@ void ibm_fsp_exit(void)
 	create_led_device_nodes();
 }
 
+static int set_ipl_speed(uint8_t speed)
+{
+	struct fsp_msg *msg;
+	int rc;
+
+	msg = fsp_mkmsg(FSP_CMD_SET_IPL_SPEED, 1, speed);
+	if (!msg)
+		return OPAL_INTERNAL_ERROR;
+
+	if (fsp_sync_msg(msg, false)) {
+		fsp_freemsg(msg);
+		return OPAL_INTERNAL_ERROR;
+	}
+	rc = (msg->resp->word1 >> 8) & 0xff;
+	fsp_freemsg(msg);
+	return rc;
+}
+
 int64_t ibm_fsp_cec_reboot(void)
 {
 	uint32_t cmd = FSP_CMD_REBOOT;
+	int rc;
 
 	if (!fsp_present())
 		return OPAL_UNSUPPORTED;
+
+	rc = set_ipl_speed(0); /* slow */
+	if (rc)
+		printf("FSP: Couldn't not set IPL speed: %d\n", rc);
+	else
+		printf("FSP: IPL speed set to slow\n");
 
 	/* Flash new firmware */
 	if (fsp_flash_term_hook &&
