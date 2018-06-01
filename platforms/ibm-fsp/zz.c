@@ -45,14 +45,109 @@ const struct platform_ocapi zz_ocapi = {
 	.odl_phy_swap        = true,
 };
 
+#define NPU_BASE 0x5011000
+#define NPU_SIZE 0x2c
+#define NPU_INDIRECT0	0x8000000009010c3f /* OB0 - no OB3 on ZZ */
+
+static void create_link(struct dt_node *npu, int group, int index)
+{
+	struct dt_node *link;
+	uint32_t lane_mask;
+	char namebuf[32];
+
+	snprintf(namebuf, sizeof(namebuf), "link@%x", index);
+	link = dt_new(npu, namebuf);
+
+	dt_add_property_string(link, "compatible", "ibm,npu-link-opencapi");
+	dt_add_property_cells(link, "ibm,npu-link-index", index);
+
+	switch (index) {
+	case 2:
+		lane_mask = 0xf1e000; /* 0-3, 7-10 */
+		break;
+	case 3:
+		lane_mask = 0x00078f; /* 13-16, 20-23 */
+		break;
+	default:
+		assert(0);
+	}
+
+	dt_add_property_u64s(link, "ibm,npu-phy", NPU_INDIRECT0);
+	dt_add_property_cells(link, "ibm,npu-lane-mask", lane_mask);
+	dt_add_property_cells(link, "ibm,npu-group-id", group);
+	dt_add_property_u64s(link, "ibm,link-speed", 20000000000ul);
+}
+
+/* FIXME: Get rid of this after we get NPU information properly via HDAT/MRW */
+static void zz_fix_npu(void)
+{
+	struct dt_node *npu;
+	struct dt_property *prop;
+
+	/* NPU node already exists, but contains no link */
+	prlog(PR_DEBUG, "OCAPI: Adding NPU links\n");
+	dt_for_each_compatible(dt_root, npu, "ibm,power9-npu") {
+		prop = __dt_find_property(npu, "ibm,npu-links");
+		if (!prop) {
+			prlog(PR_ERR, "OCAPI: cannot find npu-links property on npu\n");
+			return;
+		}
+		dt_del_property(npu, prop);
+		dt_add_property_cells(npu, "ibm,npu-links", 2);
+		create_link(npu, 1, 2);
+		create_link(npu, 2, 3);
+	}
+}
+
+static void zz_create_ocapi_i2c_bus(void)
+{
+	struct dt_node *xscom, *i2cm, *i2c_bus;
+
+	prlog(PR_DEBUG, "OCAPI: Adding I2C bus device node for OCAPI reset\n");
+	dt_for_each_compatible(dt_root, xscom, "ibm,xscom") {
+		i2cm = dt_find_by_name(xscom, "i2cm@a1000");
+		if (!i2cm) {
+			prlog(PR_DEBUG, "OCAPI: Adding master @a1000\n");
+			i2cm = dt_new(xscom, "i2cm@a1000");
+			dt_add_property_cells(i2cm, "reg", 0xa1000, 0x1000);
+			dt_add_property_strings(i2cm, "compatible",
+					     "ibm,power8-i2cm", "ibm,power9-i2cm");
+			dt_add_property_cells(i2cm, "#size-cells", 0x0);
+			dt_add_property_cells(i2cm, "#address-cells", 0x1);
+			dt_add_property_cells(i2cm, "chip-engine#", 0x1);
+			dt_add_property_cells(i2cm, "clock-frequency", 0x7735940);
+		}
+
+		if (dt_find_by_name(i2cm, "i2c-bus@4"))
+			continue;
+
+		prlog(PR_DEBUG, "OCAPI: Adding bus 4\n");
+		i2c_bus = dt_new_addr(i2cm, "i2c-bus", 4);
+		dt_add_property_cells(i2c_bus, "reg", 4);
+		dt_add_property_cells(i2c_bus, "bus-frequency", 0x61a80);
+		dt_add_property_strings(i2c_bus, "compatible",
+					"ibm,opal-i2c", "ibm,power8-i2c-port",
+					"ibm,power9-i2c-port");
+	}
+}
+
+static void hack_opencapi_setup(void)
+{
+	zz_fix_npu();
+	zz_create_ocapi_i2c_bus();
+}
+
 static bool zz_probe(void)
 {
 	/* FIXME: make this neater when the dust settles */
 	if (dt_node_is_compatible(dt_root, "ibm,zz-1s2u") ||
-	    dt_node_is_compatible(dt_root, "ibm,zz-1s4u") ||
-	    dt_node_is_compatible(dt_root, "ibm,zz-2s2u") ||
-	    dt_node_is_compatible(dt_root, "ibm,zz-2s4u"))
+		dt_node_is_compatible(dt_root, "ibm,zz-1s4u") ||
+		dt_node_is_compatible(dt_root, "ibm,zz-2s2u") ||
+		dt_node_is_compatible(dt_root, "ibm,zz-2s4u")) {
+
+		hack_opencapi_setup();
 		return true;
+	}
 
 	return false;
 }
