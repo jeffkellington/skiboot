@@ -2076,6 +2076,8 @@ static int64_t alloc_lpc_bar(struct npu2_dev *dev, uint64_t size, uint64_t *bar)
 	}
 
         set_lpc_bar(dev, phys_map_base, size);
+
+	prlog(PR_NOTICE, "OCAPI: Set BAR phys map base to %llx. Pointer at %p\n", phys_map_base, bar);
 	*bar = phys_map_base;
 
 	return OPAL_SUCCESS;
