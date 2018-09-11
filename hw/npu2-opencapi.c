@@ -51,6 +51,7 @@
 #include <xive.h>
 #include <i2c.h>
 #include <nvram.h>
+#include <affinity.h>
 
 #define NPU_IRQ_LEVELS		35
 #define NPU_IRQ_LEVELS_XSL	23
@@ -1641,6 +1642,7 @@ static void setup_device(struct npu2_dev *dev)
 	dt_add_property(dn_phb, "ibm,mmio-window", mm_win, sizeof(mm_win));
 	dt_add_property_cells(dn_phb, "ibm,phb-diag-data-size", 0);
 	dt_add_property_cells(dn_phb, "ibm,opal-num-pes", NPU2_MAX_PE_NUM);
+	add_chip_dev_associativity(dn_phb);
 
 	dt_add_property_cells(dn_phb, "ranges", 0x02000000,
 			      hi32(mm_win[0]), lo32(mm_win[0]),
@@ -2014,7 +2016,7 @@ static void set_lpc_bar(struct npu2_dev *dev, uint64_t base, uint64_t size)
 	val = SETFIELD(NPU2_MEM_BAR_NODE_ADDR, val, GETFIELD(PPC_BITMASK(22, 33), base)); /* 12 bits, 1G aligned */
 
 	val = SETFIELD(NPU2_MEM_BAR_GROUP | NPU2_MEM_BAR_CHIP, val, group_chip_id);
-	val = SETFIELD(NPU2_MEM_BAR_POISON, val, 1);
+	//val = SETFIELD(NPU2_MEM_BAR_POISON, val, 1);
 	val = SETFIELD(NPU2_MEM_BAR_GRANULE, val, 0);
 	val = SETFIELD(NPU2_MEM_BAR_BAR_SIZE, val, ilog2(size >> 30));
 	mode = 0; // TODO: Confirm value, I think this is right though
