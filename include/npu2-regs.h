@@ -203,6 +203,8 @@ void npu2_scom_write(uint64_t gcid, uint64_t scom_base,
 #define NPU2_PERF_MASK				0x110
 #define NPU2_DBG0_CFG				0x118
 #define NPU2_DBG1_CFG				0x120
+#define NPU2_C_ERR_RPT_MSG5			0x128
+#define NPU2_C_ERR_RPT_MSG6			0x130
 
 /* CTL block registers */
 #define NPU2_CQ_CTL_MISC_CFG			0x000
@@ -295,10 +297,12 @@ void npu2_scom_write(uint64_t gcid, uint64_t scom_base,
 #define NPU2_NTL_MISC_CFG3(ndev)		NPU2_NTL_REG_OFFSET(ndev, 0x008)
 #define NPU2_NTL_ERR_HOLD1(ndev)		NPU2_NTL_REG_OFFSET(ndev, 0x010)
 #define NPU2_NTL_ERR_MASK1(ndev)		NPU2_NTL_REG_OFFSET(ndev, 0x018)
+#define NPU2_NTL_ERR_FIRST1_OFF			0x020
 #define NPU2_NTL_ERR_FIRST1(ndev)		NPU2_NTL_REG_OFFSET(ndev, 0x020)
 #define NPU2_NTL_ERR_FIRST1_MASK(ndev)		NPU2_NTL_REG_OFFSET(ndev, 0x028)
 #define NPU2_NTL_ERR_HOLD2(ndev)		NPU2_NTL_REG_OFFSET(ndev, 0x030)
 #define NPU2_NTL_ERR_MASK2(ndev)		NPU2_NTL_REG_OFFSET(ndev, 0x038)
+#define NPU2_NTL_ERR_FIRST2_OFF			0x040
 #define NPU2_NTL_ERR_FIRST2(ndev)		NPU2_NTL_REG_OFFSET(ndev, 0x040)
 #define NPU2_NTL_ERR_FIRST2_MASK(ndev)		NPU2_NTL_REG_OFFSET(ndev, 0x048)
 #define NPU2_NTL_SCRATCH2(ndev)			NPU2_NTL_REG_OFFSET(ndev, 0x050)
@@ -402,6 +406,12 @@ void npu2_scom_write(uint64_t gcid, uint64_t scom_base,
 #define NPU2_OTL_OSL_DAR(stack, block)		NPU2_REG_OFFSET(stack, block, 0x008)
 #define NPU2_OTL_OSL_TFC(stack, block)		NPU2_REG_OFFSET(stack, block, 0x010)
 #define NPU2_OTL_OSL_PEHANDLE(stack, block)	NPU2_REG_OFFSET(stack, block, 0x018)
+#define NPU2_OTL_ERR_RPT_HOLD0			0x30
+#define NPU2_OTL_RAS_ERR_MSG0			0x68
+#define NPU2_OTL_RXI_ERR_SIG			0x70
+#define NPU2_OTL_RXO_ERR_SIG			0x78
+#define NPU2_OTL_ERR_RPT_HOLD1			0xB0
+
 
 /* Misc block registers. Unlike the SM/CTL/DAT/NTL registers above
  * there is only a single instance of each of these in the NPU so we
@@ -480,10 +490,13 @@ void npu2_scom_write(uint64_t gcid, uint64_t scom_base,
 #define NPU2_MISC_IRQ_LOG13			NPU2_REG_OFFSET(NPU2_STACK_MISC, NPU2_BLOCK_MISC, 0x368)
 #define NPU2_MISC_IRQ_LOG14			NPU2_REG_OFFSET(NPU2_STACK_MISC, NPU2_BLOCK_MISC, 0x370)
 #define NPU2_MISC_IRQ_LOG15			NPU2_REG_OFFSET(NPU2_STACK_MISC, NPU2_BLOCK_MISC, 0x378)
+#define NPU2_MISC_FENCE_ENABLE2			NPU2_REG_OFFSET(NPU2_STACK_MISC, NPU2_BLOCK_MISC, 0x400)
 #define NPU2_MISC_IRQ_ENABLE2			NPU2_REG_OFFSET(NPU2_STACK_MISC, NPU2_BLOCK_MISC, 0x408)
 
 /* Misc register, direct access only */
-#define NPU2_MISC_FIR_MASK1		0x2C43
+#define NPU2_MISC_FIR0_MASK		0x2C03
+#define NPU2_MISC_FIR1_MASK		0x2C43
+#define NPU2_MISC_FIR2_MASK		0x2C83
 
 /* ATS block registers */
 #define NPU2_ATS_PMU_CTL			NPU2_REG_OFFSET(NPU2_STACK_MISC, NPU2_BLOCK_ATS, 0x000)

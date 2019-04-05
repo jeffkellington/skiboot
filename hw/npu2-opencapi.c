@@ -48,11 +48,9 @@
 #include <npu2.h>
 #include <npu2-regs.h>
 #include <phys-map.h>
-#include <xive.h>
 #include <i2c.h>
 #include <nvram.h>
 
-#define NPU_IRQ_LEVELS		35
 #define NPU_IRQ_LEVELS_XSL	23
 #define MAX_PE_HANDLE		((1 << 15) - 1)
 #define TL_MAX_TEMPLATE		63
@@ -582,6 +580,20 @@ static void brick_config(uint32_t gcid, uint32_t scom_base, int index)
 	enable_xsl_xts_interfaces(gcid, scom_base, index);
 	enable_sm_allocation(gcid, scom_base, index);
 	enable_pb_snooping(gcid, scom_base, index);
+}
+
+/* Procedure 13.1.3.4 - Brick to PE Mapping */
+static void pe_config(struct npu2_dev *dev)
+{
+	/* We currently use a fixed PE assignment per brick */
+	uint64_t val, reg;
+	val = NPU2_MISC_BRICK_BDF2PE_MAP_ENABLE;
+	val = SETFIELD(NPU2_MISC_BRICK_BDF2PE_MAP_PE, val, NPU2_OCAPI_PE(dev));
+	val = SETFIELD(NPU2_MISC_BRICK_BDF2PE_MAP_BDF, val, 0);
+	reg = NPU2_REG_OFFSET(NPU2_STACK_MISC, NPU2_BLOCK_MISC,
+			      NPU2_MISC_BRICK0_BDF2PE_MAP0 +
+			      (dev->brick_index * 0x18));
+	npu2_write(dev->npu, reg, val);
 }
 
 /* Procedure 13.1.3.5 - TL Configuration */
@@ -1424,45 +1436,62 @@ static int64_t npu2_opencapi_ioda_reset(struct phb __unused *phb,
 
 static int64_t npu2_opencapi_set_pe(struct phb *phb,
 				    uint64_t pe_num,
-				    uint64_t bdfn,
-				    uint8_t bcompare,
-				    uint8_t dcompare,
-				    uint8_t fcompare,
-				    uint8_t action)
+				    uint64_t __unused bdfn,
+				    uint8_t __unused bcompare,
+				    uint8_t __unused dcompare,
+				    uint8_t __unused fcompare,
+				    uint8_t __unused action)
 {
-	struct npu2 *p;
-	struct npu2_dev *dev;
-	uint64_t reg, val, pe_bdfn;
+	struct npu2_dev *dev = phb_to_npu2_dev_ocapi(phb);
+	/*
+	 * Ignored on OpenCAPI - we use fixed PE assignments. May need
+	 * addressing when we support dual-link devices.
+	 *
+	 * We nonetheless store the PE reported by the OS so that we
+	 * can send it back in case of error. If there are several PCI
+	 * functions on the device, the OS can define many PEs, we
+	 * only keep one, the OS will handle it.
+	 */
+	dev->linux_pe = pe_num;
+	return OPAL_SUCCESS;
+}
 
-	/* Sanity check */
-	if (action != OPAL_MAP_PE && action != OPAL_UNMAP_PE)
+static int64_t npu2_opencapi_freeze_status(struct phb *phb __unused,
+			   uint64_t pe_number __unused,
+			   uint8_t *freeze_state,
+			   uint16_t *pci_error_type,
+			   uint16_t *severity)
+{
+	*freeze_state = OPAL_EEH_STOPPED_NOT_FROZEN;
+	*pci_error_type = OPAL_EEH_NO_ERROR;
+	if (severity)
+		*severity = OPAL_EEH_SEV_NO_ERROR;
+
+	return OPAL_SUCCESS;
+}
+
+static int64_t npu2_opencapi_eeh_next_error(struct phb *phb,
+				   uint64_t *first_frozen_pe,
+				   uint16_t *pci_error_type,
+				   uint16_t *severity)
+{
+	struct npu2_dev *dev = phb_to_npu2_dev_ocapi(phb);
+	uint64_t reg;
+
+	if (!first_frozen_pe || !pci_error_type || !severity)
 		return OPAL_PARAMETER;
-	if (pe_num >= NPU2_MAX_PE_NUM)
-		return OPAL_PARAMETER;
-	if (bdfn >> 8)
-		return OPAL_PARAMETER;
-	if (bcompare != OpalPciBusAll ||
-	    dcompare != OPAL_COMPARE_RID_DEVICE_NUMBER ||
-	    fcompare != OPAL_COMPARE_RID_FUNCTION_NUMBER)
-		return OPAL_UNSUPPORTED;
 
-	/* Get the NPU2 device */
-	dev = phb_to_npu2_dev_ocapi(phb);
-	if (!dev)
-		return OPAL_PARAMETER;
-
-	p = dev->npu;
-
-	pe_bdfn = dev->bdfn;
-
-	val = NPU2_MISC_BRICK_BDF2PE_MAP_ENABLE;
-	val = SETFIELD(NPU2_MISC_BRICK_BDF2PE_MAP_PE, val, pe_num);
-	val = SETFIELD(NPU2_MISC_BRICK_BDF2PE_MAP_BDF, val, pe_bdfn);
-	reg = NPU2_REG_OFFSET(NPU2_STACK_MISC, NPU2_BLOCK_MISC,
-			      NPU2_MISC_BRICK0_BDF2PE_MAP0 +
-			      (dev->brick_index * 0x18));
-	npu2_write(p, reg, val);
-
+	reg = npu2_read(dev->npu, NPU2_MISC_FENCE_STATE);
+	if (reg & PPC_BIT(dev->brick_index)) {
+		OCAPIERR(dev, "Brick %d fenced!\n", dev->brick_index);
+		*first_frozen_pe = dev->linux_pe;
+		*pci_error_type = OPAL_EEH_PHB_ERROR;
+		*severity = OPAL_EEH_SEV_PHB_DEAD;
+	} else {
+		*first_frozen_pe = -1;
+		*pci_error_type = OPAL_EEH_NO_ERROR;
+		*severity = OPAL_EEH_SEV_NO_ERROR;
+	}
 	return OPAL_SUCCESS;
 }
 
@@ -1479,7 +1508,7 @@ static int npu2_add_mmio_regs(struct phb *phb, struct pci_device *pd,
 	 * Pass the hw irq number for the translation fault irq
 	 * irq levels 23 -> 26 are for translation faults, 1 per brick
 	 */
-	irq = dev->npu->irq_base + NPU_IRQ_LEVELS_XSL;
+	irq = dev->npu->base_lsi + NPU_IRQ_LEVELS_XSL;
 	if (stacku == NPU2_STACK_STCK_2U)
 		irq += 2;
 	if (block == NPU2_BLOCK_OTL1)
@@ -1526,9 +1555,9 @@ static void mask_nvlink_fir(struct npu2 *p)
 	 */
 
 	/* Mask FIRs */
-	xscom_read(p->chip_id, p->xscom_base + NPU2_MISC_FIR_MASK1, &reg);
+	xscom_read(p->chip_id, p->xscom_base + NPU2_MISC_FIR1_MASK, &reg);
 	reg = SETFIELD(PPC_BITMASK(0, 11), reg, 0xFFF);
-	xscom_write(p->chip_id, p->xscom_base + NPU2_MISC_FIR_MASK1, reg);
+	xscom_write(p->chip_id, p->xscom_base + NPU2_MISC_FIR1_MASK, reg);
 
 	/* freeze disable */
 	reg = npu2_scom_read(p->chip_id, p->xscom_base,
@@ -1552,49 +1581,40 @@ static void mask_nvlink_fir(struct npu2 *p)
 			NPU2_MISC_IRQ_ENABLE1, NPU2_MISC_DA_LEN_8B, reg);
 }
 
-static int setup_irq(struct npu2 *p)
+static int enable_interrupts(struct npu2 *p)
 {
-	uint64_t reg, mmio_addr;
-	uint32_t base;
+	uint64_t reg, val_xsl, val_override;
 
-	base = xive_alloc_ipi_irqs(p->chip_id, NPU_IRQ_LEVELS, 64);
-	if (base == XIVE_IRQ_ERROR) {
-		/**
-		 * @fwts-label OCAPIIRQAllocationFailed
-		 * @fwts-advice OpenCAPI IRQ setup failed. This is probably
-		 * a firmware bug. OpenCAPI functionality will be broken.
-		 */
-		prlog(PR_ERR, "OCAPI: Couldn't allocate interrupts for NPU\n");
-		return -1;
-	}
-	p->irq_base = base;
-
-	xive_register_ipi_source(base, NPU_IRQ_LEVELS, NULL, NULL);
-	mmio_addr = (uint64_t ) xive_get_trigger_port(base);
-	prlog(PR_DEBUG, "OCAPI: NPU base irq %d @%llx\n", base, mmio_addr);
-	reg = (mmio_addr & NPU2_MISC_IRQ_BASE_MASK) << 13;
-	npu2_scom_write(p->chip_id, p->xscom_base, NPU2_MISC_IRQ_BASE,
-			NPU2_MISC_DA_LEN_8B, reg);
 	/*
-	 * setup page size = 64k
+	 * Enable translation interrupts for all bricks and override
+	 * every brick-fatal error to send an interrupt instead of
+	 * checkstopping.
 	 *
-	 * OS type is set to AIX: opal also runs with 2 pages per interrupt,
-	 * so to cover the max offset for 35 levels of interrupt, we need
-	 * bits 41 to 46, which is what the AIX setting does. There's no
-	 * other meaning for that AIX setting.
+	 * FIR bits configured to trigger an interrupt must have their
+	 * default action masked
 	 */
-	reg = npu2_scom_read(p->chip_id, p->xscom_base, NPU2_MISC_CFG,
-			NPU2_MISC_DA_LEN_8B);
-	reg |= NPU2_MISC_CFG_IPI_PS;
-	reg &= ~NPU2_MISC_CFG_IPI_OS;
-	npu2_scom_write(p->chip_id, p->xscom_base, NPU2_MISC_CFG,
-			NPU2_MISC_DA_LEN_8B, reg);
+	val_xsl = PPC_BIT(0) | PPC_BIT(1) | PPC_BIT(2) | PPC_BIT(3);
+	val_override = 0x0FFFEFC00FF1B000;
 
-	/* enable translation interrupts for all bricks */
+	xscom_read(p->chip_id, p->xscom_base + NPU2_MISC_FIR2_MASK, &reg);
+	reg |= val_xsl | val_override;
+	xscom_write(p->chip_id, p->xscom_base + NPU2_MISC_FIR2_MASK, reg);
+
 	reg = npu2_scom_read(p->chip_id, p->xscom_base, NPU2_MISC_IRQ_ENABLE2,
 			     NPU2_MISC_DA_LEN_8B);
-	reg |= PPC_BIT(0) | PPC_BIT(1) | PPC_BIT(2) | PPC_BIT(3);
+	reg |= val_xsl | val_override;
 	npu2_scom_write(p->chip_id, p->xscom_base, NPU2_MISC_IRQ_ENABLE2,
+			NPU2_MISC_DA_LEN_8B, reg);
+
+	/*
+	 * Make sure the brick is fenced on those errors.
+	 * Fencing is incompatible with freezing, but there's no
+	 * freeze defined for FIR2, so we don't have to worry about it
+	 */
+	reg = npu2_scom_read(p->chip_id, p->xscom_base, NPU2_MISC_FENCE_ENABLE2,
+			     NPU2_MISC_DA_LEN_8B);
+	reg |= val_override;
+	npu2_scom_write(p->chip_id, p->xscom_base, NPU2_MISC_FENCE_ENABLE2,
 			NPU2_MISC_DA_LEN_8B, reg);
 
 	mask_nvlink_fir(p);
@@ -1653,7 +1673,13 @@ static void setup_device(struct npu2_dev *dev)
 	dt_add_property_cells(dn_phb, "ibm,links", 1);
 	dt_add_property(dn_phb, "ibm,mmio-window", mm_win, sizeof(mm_win));
 	dt_add_property_cells(dn_phb, "ibm,phb-diag-data-size", 0);
+
+	/*
+	 * We ignore whatever PE numbers Linux tries to set, so we just
+	 * advertise enough that Linux won't complain
+	 */
 	dt_add_property_cells(dn_phb, "ibm,opal-num-pes", NPU2_MAX_PE_NUM);
+	dt_add_property_cells(dn_phb, "ibm,opal-reserved-pe", NPU2_RESERVED_PE_NUM);
 
 	dt_add_property_cells(dn_phb, "ranges", 0x02000000,
 			      hi32(mm_win[0]), lo32(mm_win[0]),
@@ -1666,6 +1692,7 @@ static void setup_device(struct npu2_dev *dev)
 	dev->phb_ocapi.scan_map = 0;
 
 	dev->bdfn = 0;
+	dev->linux_pe = -1;
 	dev->train_need_fence = false;
 	dev->train_fenced = false;
 
@@ -1717,7 +1744,6 @@ int npu2_opencapi_init_npu(struct npu2 *npu)
 {
 	struct npu2_dev *dev;
 	uint64_t reg[2];
-	int rc;
 
 	assert(platform.ocapi);
 	read_nvram_training_state();
@@ -1740,6 +1766,9 @@ int npu2_opencapi_init_npu(struct npu2 *npu)
 		/* Procedure 13.1.3.1 - Select OCAPI vs NVLink */
 		brick_config(npu->chip_id, npu->xscom_base, dev->brick_index);
 
+		/* Procedure 13.1.3.4 - Brick to PE Mapping */
+		pe_config(dev);
+
 		/* Procedure 13.1.3.5 - Transaction Layer Configuration */
 		tl_config(npu->chip_id, npu->xscom_base, dev->brick_index);
 
@@ -1747,10 +1776,7 @@ int npu2_opencapi_init_npu(struct npu2 *npu)
 		address_translation_config(npu->chip_id, npu->xscom_base, dev->brick_index);
 	}
 
-	/* Procedure 13.1.3.10 - Interrupt Configuration */
-	rc = setup_irq(npu);
-	if (rc)
-		goto failed;
+	enable_interrupts(npu);
 
 	for (int i = 0; i < npu->total_devices; i++) {
 		dev = &npu->devices[i];
@@ -1760,8 +1786,6 @@ int npu2_opencapi_init_npu(struct npu2 *npu)
 	}
 
 	return 0;
-failed:
-	return -1;
 }
 
 static const struct phb_ops npu2_opencapi_ops = {
@@ -1788,10 +1812,10 @@ static const struct phb_ops npu2_opencapi_ops = {
 	.get_msi_64		= NULL,
 	.set_pe			= npu2_opencapi_set_pe,
 	.set_peltv		= NULL,
-	.eeh_freeze_status	= npu2_freeze_status,  /* TODO */
+	.eeh_freeze_status	= npu2_opencapi_freeze_status,
 	.eeh_freeze_clear	= NULL,
 	.eeh_freeze_set		= NULL,
-	.next_error		= NULL,
+	.next_error		= npu2_opencapi_eeh_next_error,
 	.err_inject		= NULL,
 	.get_diag_data		= NULL,
 	.get_diag_data2		= NULL,

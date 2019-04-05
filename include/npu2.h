@@ -46,9 +46,24 @@
 					  dev->npu->chip_id, dev->brick_index, ## a)
 
 
-/* Number of PEs supported */
-#define NPU2_MAX_PE_NUM		16
-#define NPU2_RESERVED_PE_NUM	15
+/*
+ * Number of PEs supported
+ *
+ * The NPU supports PE numbers from 0-15. At present, we only assign a maximum
+ * of 1 PE per brick.
+ *
+ * NVLink devices are currently exposed to Linux underneath a single virtual
+ * PHB. Therefore, we give NVLink half the available PEs, which is enough for
+ * 6 bricks plus 1 reserved PE.
+ *
+ * For OpenCAPI, the BDF-to-PE registers are used exclusively for mapping
+ * bricks to System Interrupt Log registers (the BDF component of those
+ * registers is ignored). Currently, we allocate a fixed PE based on the brick
+ * index in the upper half of the PE namespace.
+ */
+#define NPU2_MAX_PE_NUM		8
+#define NPU2_RESERVED_PE_NUM	7
+#define NPU2_OCAPI_PE(ndev) ((ndev)->brick_index + NPU2_MAX_PE_NUM)
 
 #define NPU2_LINKS_PER_CHIP 6
 
@@ -142,6 +157,7 @@ struct npu2_dev {
 
 	/* OpenCAPI */
 	struct phb		phb_ocapi;
+	uint64_t		linux_pe;
 	bool			train_need_fence;
 	bool			train_fenced;
 };
@@ -155,7 +171,6 @@ struct npu2 {
 	uint64_t	mm_base;
 	uint64_t	mm_size;
 	uint32_t	base_lsi;
-	uint32_t	irq_base;
 	uint32_t	total_devices;
 	struct npu2_dev	*devices;
 	enum phys_map_type gpu_map_type;
@@ -233,4 +248,5 @@ int64_t npu2_freeze_status(struct phb *phb __unused,
 			   uint8_t *freeze_state,
 			   uint16_t *pci_error_type __unused,
 			   uint16_t *severity __unused);
+void npu2_dump_scoms(int chip_id);
 #endif /* __NPU2_H */
