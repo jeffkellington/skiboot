@@ -82,19 +82,33 @@ static void create_link(struct dt_node *npu, int group, int index)
 /* FIXME: Get rid of this after we get NPU information properly via HDAT/MRW */
 static void zz_fix_npu(void)
 {
-	struct dt_node *npu;
+	struct dt_node *npu, *xscom;
+	int npu_index = 0;
+	int phb_index = 7;
 	struct dt_property *prop;
+	char namebuf[32];
 
 	/* NPU node already exists, but contains no link */
 	prlog(PR_DEBUG, "OCAPI: Adding NPU links\n");
-	dt_for_each_compatible(dt_root, npu, "ibm,power9-npu") {
-		prop = __dt_find_property(npu, "ibm,npu-links");
-		if (!prop) {
-			prlog(PR_ERR, "OCAPI: cannot find npu-links property on npu\n");
-			return;
+	dt_for_each_compatible(dt_root, xscom, "ibm,xscom") {
+		npu = dt_find_by_name(xscom, "npu@5011000");
+		if (!npu) {
+			snprintf(namebuf, sizeof(namebuf), "npu@%x", NPU_BASE);
+			npu = dt_new(xscom, namebuf);
+			dt_add_property_cells(npu, "reg", NPU_BASE, NPU_SIZE);
+			dt_add_property_strings(npu, "compatible", "ibm,power9-npu");
+			dt_add_property_cells(npu, "ibm,npu-index", npu_index++);
+			dt_add_property_cells(npu, "ibm,phb-index", phb_index++);
+			dt_add_property_cells(npu, "ibm,npu-links", 2);
+		} else {
+			prop = __dt_find_property(npu, "ibm,npu-links");
+			if (!prop) {
+				prlog(PR_ERR, "OCAPI: cannot find npu-links property on npu\n");
+				return;
+			}
+			dt_del_property(npu, prop);
+			dt_add_property_cells(npu, "ibm,npu-links", 2);
 		}
-		dt_del_property(npu, prop);
-		dt_add_property_cells(npu, "ibm,npu-links", 2);
 		create_link(npu, 1, 2);
 		create_link(npu, 2, 3);
 	}
