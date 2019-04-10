@@ -1680,11 +1680,7 @@ static void setup_device(struct npu2_dev *dev)
 	 * advertise enough that Linux won't complain
 	 */
 	dt_add_property_cells(dn_phb, "ibm,opal-num-pes", NPU2_MAX_PE_NUM);
-<<<<<<< HEAD
-	dt_add_property_cells(dn_phb, "ibm,opal-reserved-pe", NPU2_RESERVED_PE_NUM);
-=======
 	add_chip_dev_associativity(dn_phb);
->>>>>>> adsilva/scm
 
 	dt_add_property_cells(dn_phb, "ranges", 0x02000000,
 			      hi32(mm_win[0]), lo32(mm_win[0]),

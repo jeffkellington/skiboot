@@ -56,19 +56,10 @@ int pnor_init(void)
 		style = ipmi_hiomap;
 		rc = ipmi_hiomap_init(&bl);
 	}
-<<<<<<< HEAD
-
 	if (!ast_lpc_fw_ipmi_hiomap() || rc) {
 		if (!ast_sio_is_enabled())
 			return -ENODEV;
 
-=======
-
-	if (!ast_lpc_fw_ipmi_hiomap() || rc) {
-		if (!ast_sio_is_enabled())
-			return -ENODEV;
-
->>>>>>> adsilva/scm
 		style = ast_flash_get_fallback_style();
 		if (style == mbox_hiomap)
 			rc = mbox_flash_init(&bl);
@@ -84,20 +75,14 @@ int pnor_init(void)
 
 	if (rc) {
 		prerror("PLAT: Failed to init PNOR driver\n");
-<<<<<<< HEAD
 		goto fail;
 	}
 
 	if (style == raw_flash || style == raw_mem) {
 	    rc = flash_init(pnor_ctrl, &bl, NULL);
 	    if (rc)
-=======
->>>>>>> adsilva/scm
 		goto fail;
 	}
-
-	if (style == raw_flash || style == raw_mem)
-	    rc = flash_init(pnor_ctrl, &bl, NULL);
 
 	rc = flash_register(bl);
 	if (!rc)

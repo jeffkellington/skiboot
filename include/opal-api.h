@@ -226,14 +226,10 @@
 #define OPAL_NX_COPROC_INIT			167
 #define OPAL_NPU_SET_RELAXED_ORDER		168
 #define OPAL_NPU_GET_RELAXED_ORDER		169
-<<<<<<< HEAD
-#define OPAL_XIVE_GET_VP_STATE			170 /* Get NVT state */
-#define OPAL_LAST				170
-=======
 #define OPAL_NPU_LPC_ALLOC			170
 #define OPAL_NPU_LPC_RELEASE			171
-#define OPAL_LAST				171
->>>>>>> adsilva/scm
+#define OPAL_XIVE_GET_VP_STATE			172
+#define OPAL_LAST				172
 
 #define QUIESCE_HOLD			1 /* Spin all calls at entry */
 #define QUIESCE_REJECT			2 /* Fail all calls with OPAL_BUSY */
